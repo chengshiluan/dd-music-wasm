@@ -1,0 +1,15 @@
+{
+  "name": "dd-music-wasm",
+  "type": "module",
+  "version": "1.0.0",
+  "files": [
+    "dd_music_wasm_bg.wasm",
+    "dd_music_wasm.js",
+    "dd_music_wasm.d.ts"
+  ],
+  "main": "dd_music_wasm.js",
+  "types": "dd_music_wasm.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}

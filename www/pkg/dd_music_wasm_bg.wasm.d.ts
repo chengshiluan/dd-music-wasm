@@ -1,0 +1,30 @@
+/* tslint:disable */
+/* eslint-disable */
+export const memory: WebAssembly.Memory;
+export const __wbg_playlist_free: (a: number, b: number) => void;
+export const build_netease_lyric_url: (a: number, b: number) => [number, number];
+export const build_netease_song_url: (a: number, b: number) => [number, number];
+export const escape_html: (a: number, b: number) => [number, number];
+export const format_duration: (a: bigint) => [number, number];
+export const get_platforms: () => [number, number];
+export const parse_bilibili_search: (a: number, b: number) => [number, number];
+export const parse_kugou_search: (a: number, b: number) => [number, number];
+export const parse_kuwo_search: (a: number, b: number) => [number, number];
+export const parse_migu_search: (a: number, b: number) => [number, number];
+export const parse_netease_search: (a: number, b: number) => [number, number];
+export const parse_qq_search: (a: number, b: number) => [number, number];
+export const playlist_add_song: (a: number, b: number, c: number) => void;
+export const playlist_clear: (a: number) => void;
+export const playlist_current_index: (a: number) => number;
+export const playlist_get_all_songs: (a: number) => [number, number];
+export const playlist_get_current_song: (a: number) => [number, number];
+export const playlist_new: () => number;
+export const playlist_remove_song: (a: number, b: number) => void;
+export const playlist_set_current_index: (a: number, b: number) => void;
+export const playlist_size: (a: number) => number;
+export const version: () => [number, number];
+export const __wbindgen_externrefs: WebAssembly.Table;
+export const __wbindgen_malloc: (a: number, b: number) => number;
+export const __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
+export const __wbindgen_free: (a: number, b: number, c: number) => void;
+export const __wbindgen_start: () => void;
