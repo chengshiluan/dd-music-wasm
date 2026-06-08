@@ -1,12 +1,11 @@
-import init, { Playlist, get_platforms, parse_netease_search, parse_qq_search, parse_kugou_search, parse_kuwo_search, parse_bilibili_search, parse_migu_search, parse_netease_chart, parse_qq_chart, parse_bilibili_popular, parse_kugou_chart, parse_netease_playlist, build_netease_song_url, format_duration } from '../pkg/dd_music_wasm.js';
+import init, { Playlist, format_duration } from '../pkg/dd_music_wasm.js';
 
 // ─── State ───
 let playlist;
 let currentPlatform = 'bilibili';
-let allChartSongs = {};
 let currentPlaylistIndex = -1;
 
-const PROXY_URL = '/api/proxy?url=';
+const API = '/api/proxy';
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => document.querySelectorAll(s);
 
@@ -32,52 +31,14 @@ const currentTimeEl = $('#currentTime');
 const durationEl = $('#duration');
 const platformBadge = $('#platformBadge');
 
-// ─── Platform config ───
-const parsers = {
-    netease: parse_netease_search,
-    qq: parse_qq_search,
-    kugou: parse_kugou_search,
-    kuwo: parse_kuwo_search,
-    bilibili: parse_bilibili_search,
-    migu: parse_migu_search,
-};
-
-const chartParsers = {
-    netease: parse_netease_chart,
-    qq: parse_qq_chart,
-    bilibili: parse_bilibili_popular,
-    kugou: parse_kugou_chart,
-};
-
 const platformNames = {
     netease: '网易云', qq: 'QQ音乐', kugou: '酷狗',
     kuwo: '酷我', bilibili: 'B站', migu: '咪咕',
 };
 
-const platformSearchParams = {
-    netease: (q) => `s=${encodeURIComponent(q)}&type=1&limit=20`,
-    qq: (q) => `w=${encodeURIComponent(q)}&format=json&n=20`,
-    kugou: (q) => `keyword=${encodeURIComponent(q)}&page=1&pagesize=20`,
-    kuwo: (q) => `key=${encodeURIComponent(q)}&pn=1&rn=20`,
-    bilibili: (q) => `keyword=${encodeURIComponent(q)}&search_type=video&page=1`,
-    migu: (q) => `keyword=${encodeURIComponent(q)}&page=1&rows=20`,
-};
-
-const searchUrls = {
-    netease: 'https://music.163.com/api/search/get',
-    qq: 'https://c.y.qq.com/soso/fcgi-bin/client_search_cp',
-    kugou: 'https://songsearch.kugou.com/song_search_v2',
-    kuwo: 'https://www.kuwo.cn/api/www/search/searchMusicBykeyWord',
-    bilibili: 'https://api.bilibili.com/x/web-interface/search/type',
-    migu: 'https://m.music.migu.cn/migu/remoting/scr_search_tag',
-};
-
-// Chart API endpoints
-const chartUrls = {
-    netease: 'https://music.163.com/api/playlist/detail?id=3778678',
-    qq: 'https://c.y.qq.com/v8/fcg-bin/fcg_myqq_toplist.fcg?format=json&type=toplist&topid=26',
-    bilibili: 'https://api.bilibili.com/x/web-interface/popular?ps=20',
-    kugou: 'https://www.kugou.com/yy/rank/home/1-8888.html?from=rank',
+const platformColors = {
+    netease: '#e60026', qq: '#31c27c', kugou: '#2e8bff',
+    kuwo: '#ffcc00', bilibili: '#fb7299', migu: '#e5004f',
 };
 
 // ─── Init ───
@@ -85,36 +46,26 @@ async function bootstrap() {
     await init();
     playlist = new Playlist();
 
-    // Platform tabs
     $('#platformTabs').addEventListener('click', (e) => {
         const tab = e.target.closest('.platform-tab');
         if (!tab) return;
         currentPlatform = tab.dataset.platform;
         $$('.platform-tab').forEach(t => t.classList.remove('active'));
         tab.classList.add('active');
-        if (searchInput.value.trim()) {
-            search();
-        }
+        if (searchInput.value.trim()) search();
     });
 
-    // Search
     searchBtn.addEventListener('click', () => search());
-    searchInput.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') search();
-    });
+    searchInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') search(); });
 
-    // Player controls
     $('#btnPlay').addEventListener('click', togglePlay);
     $('#btnPrev').addEventListener('click', playPrev);
     $('#btnNext').addEventListener('click', playNext);
     $('#clearPlaylist').addEventListener('click', clearPlaylist);
-
-    // Progress & volume
     progressBar.addEventListener('click', seek);
     volumeBar.addEventListener('click', setVolume);
     $('#btnVolume').addEventListener('click', toggleMute);
 
-    // Audio events
     audio.addEventListener('timeupdate', updateProgress);
     audio.addEventListener('loadedmetadata', updateDuration);
     audio.addEventListener('ended', onSongEnd);
@@ -123,9 +74,7 @@ async function bootstrap() {
     // NetEase import modal
     $('#neteaseImportBtn').addEventListener('click', openImportModal);
     $('#closeImportModal').addEventListener('click', closeImportModal);
-    $('#importModal').addEventListener('click', (e) => {
-        if (e.target === $('#importModal')) closeImportModal();
-    });
+    $('#importModal').addEventListener('click', (e) => { if (e.target === $('#importModal')) closeImportModal(); });
     $('#importPlaylistBtn').addEventListener('click', importPlaylist);
 
     // Chart "play all" buttons
@@ -133,12 +82,13 @@ async function bootstrap() {
         const btn = e.target.closest('.chart-play-all');
         if (!btn) return;
         const chart = btn.dataset.chart;
-        if (allChartSongs[chart]) {
+        const songs = window['_chartSongs_' + chart];
+        if (songs && songs.length) {
             playlist.clear();
-            allChartSongs[chart].forEach(s => playlist.add_song(JSON.stringify(s)));
+            songs.forEach(s => playlist.add_song(JSON.stringify(s)));
             renderPlaylist();
             playSong(0);
-            toast(`已添加 ${allChartSongs[chart].length} 首歌曲`, 'success');
+            toast(`已添加 ${songs.length} 首`, 'success');
         }
     });
 
@@ -146,385 +96,295 @@ async function bootstrap() {
     loadCharts();
 }
 
-// ─── Chart loading ───
+// ─── API helpers ───
+async function apiCall(params) {
+    const qs = new URLSearchParams(params).toString();
+    const resp = await fetch(API + '?' + qs);
+    return resp.json();
+}
+
+// ─── Charts ───
 async function loadCharts() {
-    const charts = ['bilibili', 'netease', 'qq'];
-    for (const platform of charts) {
-        loadChart(platform);
-    }
+    await Promise.all([loadBilibiliPopular(), loadNeteaseCharts(), loadQQCharts()]);
 }
 
-async function loadChart(platform) {
-    const container = $(`#chartSongs${platform.charAt(0).toUpperCase() + platform.slice(1)}`);
-    if (!container) return;
+async function loadBilibiliPopular() {
+    const container = $('#chartSongsBilibili');
     try {
-        const url = chartUrls[platform];
-        const proxyUrl = PROXY_URL + encodeURIComponent(url);
-        const headers = {};
-        if (platform === 'netease') headers['Referer'] = 'https://music.163.com/';
-        if (platform === 'bilibili') headers['Referer'] = 'https://www.bilibili.com/';
-
-        const resp = await fetch(proxyUrl, { headers });
-        const data = await resp.text();
-        const songsJson = chartParsers[platform](data);
-        const songs = JSON.parse(songsJson);
-        allChartSongs[platform] = songs;
-
-        container.innerHTML = songs.slice(0, 20).map((song, i) => `
-            <div class="chart-song-item" data-song='${escapeHtml(JSON.stringify(song))}'>
-                <span class="song-index">${i + 1}</span>
-                <img class="song-cover" src="${song.cover_url || ''}" onerror="this.style.display='none'" loading="lazy">
-                <div class="song-info">
-                    <div class="song-title">${escapeHtml(song.title)}</div>
-                    <div class="song-artist">${escapeHtml(song.artist)}</div>
-                </div>
-                <span class="song-duration">${format_duration(song.duration)}</span>
-                <div class="song-actions">
-                    <button class="btn-icon" data-action="add" title="添加到播放列表">
-                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
-                    </button>
-                </div>
-            </div>
-        `).join('');
-
-        // Click handlers
-        container.querySelectorAll('.chart-song-item').forEach(item => {
-            item.addEventListener('dblclick', () => {
-                const song = JSON.parse(item.dataset.song);
-                addToPlaylist(song);
-                playSong(playlist.size() - 1);
-            });
-            item.addEventListener('click', (e) => {
-                if (e.target.closest('[data-action="add"]')) {
-                    e.stopPropagation();
-                    const song = JSON.parse(item.dataset.song);
-                    addToPlaylist(song);
-                    toast('已添加到播放列表', 'success');
-                }
-            });
-        });
-    } catch (err) {
-        console.error(`Chart ${platform} error:`, err);
-        container.innerHTML = '<div class="chart-loading" style="color:#71717a;">加载失败</div>';
-    }
+        const data = await apiCall({ action: 'chart', platform: 'bilibili' });
+        if (Array.isArray(data)) { window._chartSongs_bilibili = data; renderChartSongs(container, data); }
+        else container.innerHTML = '<div class="chart-loading" style="color:#71717a;">加载失败</div>';
+    } catch { container.innerHTML = '<div class="chart-loading" style="color:#71717a;">加载失败</div>'; }
 }
 
-// ─── Search (Bilibili first) ───
+async function loadNeteaseCharts() {
+    const container = $('#chartSongsNetease');
+    try {
+        const charts = await apiCall({ action: 'chart', platform: 'netease' });
+        if (Array.isArray(charts) && charts.length > 0) {
+            const hot = charts[0];
+            const detail = await apiCall({ action: 'chart', platform: 'netease', listId: hot.id });
+            if (detail.tracks) { window._chartSongs_netease = detail.tracks.slice(0, 20); renderChartSongs(container, window._chartSongs_netease); }
+        } else {
+            container.innerHTML = '<div class="chart-loading" style="color:#71717a;">加载失败</div>';
+        }
+    } catch { container.innerHTML = '<div class="chart-loading" style="color:#71717a;">加载失败</div>'; }
+}
+
+async function loadQQCharts() {
+    const container = $('#chartSongsQQ');
+    try {
+        const charts = await apiCall({ action: 'chart', platform: 'qq' });
+        if (Array.isArray(charts) && charts.length > 0) {
+            const top = charts[0];
+            const detail = await apiCall({ action: 'chart', platform: 'qq', listId: top.id });
+            if (detail.tracks) { window._chartSongs_qq = detail.tracks.slice(0, 20); renderChartSongs(container, window._chartSongs_qq); }
+        } else {
+            container.innerHTML = '<div class="chart-loading" style="color:#71717a;">加载失败</div>';
+        }
+    } catch { container.innerHTML = '<div class="chart-loading" style="color:#71717a;">加载失败</div>'; }
+}
+
+function renderChartSongs(container, songs) {
+    container.innerHTML = songs.slice(0, 20).map((song, i) => `
+        <div class="chart-song-item" data-song='${esc(JSON.stringify(song))}'>
+            <span class="song-index">${i + 1}</span>
+            <img class="song-cover" src="${song.img_url || song.cover_url || ''}" onerror="this.style.display='none'" loading="lazy">
+            <div class="song-info">
+                <div class="song-title">${esc(song.title)}</div>
+                <div class="song-artist">${esc(song.artist)}</div>
+            </div>
+            <span class="song-duration">${format_duration(song.duration || 0)}</span>
+            <div class="song-actions">
+                <button class="btn-icon" data-action="add"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg></button>
+            </div>
+        </div>`).join('');
+
+    container.querySelectorAll('.chart-song-item').forEach(item => {
+        item.addEventListener('dblclick', () => { addAndPlay(JSON.parse(item.dataset.song)); });
+        item.addEventListener('click', (e) => {
+            if (e.target.closest('[data-action="add"]')) { e.stopPropagation(); addToPlaylist(JSON.parse(item.dataset.song)); toast('已添加', 'success'); }
+        });
+    });
+}
+
+// ─── Platform-specific search result parsers (for proxy responses) ───
+function parseNeteaseRaw(data) {
+    const s = data.result?.songs || [];
+    return s.map(x => ({
+        id: 'netrack_' + x.id, title: x.name, artist: x.artists?.[0]?.name || '', artist_id: 'neartist_' + (x.artists?.[0]?.id || ''),
+        album: x.album?.name || '', album_id: 'nealbum_' + (x.album?.id || ''), source: 'netease',
+        source_url: 'https://music.163.com/#/song?id=' + x.id, img_url: x.album?.picUrl || '',
+        duration: Math.floor((x.duration || 0) / 1000), disable: x.fee === 4 || x.fee === 1,
+    }));
+}
+
+function parseKuwoRaw(data) {
+    const s = data.abslist || [];
+    return s.map(x => ({
+        id: 'kwtrack_' + x.DC_TARGETID, title: x.NAME, artist: x.ARTIST, artist_id: 'kwartist_' + x.ARTISTID,
+        album: x.ALBUM, album_id: 'kwalbum_' + x.ALBUMID, source: 'kuwo',
+        source_url: 'https://www.kuwo.cn/play_detail/' + x.DC_TARGETID,
+        img_url: 'https://img2.kuwo.cn/star/albumcover/' + (x.web_albumpic_short || ''),
+        duration: parseInt(x.DURATION || 0), lyric_url: x.DC_TARGETID,
+    }));
+}
+
+// ─── Search ───
 async function search() {
     const query = searchInput.value.trim();
-    if (!query) {
-        showCharts(true);
-        return;
-    }
+    if (!query) { showCharts(true); return; }
 
     showLoading(true);
     showCharts(false);
-    resultTitle.textContent = `搜索: "${query}"`;
+    resultTitle.textContent = '搜索: "' + query + '" · ' + platformNames[currentPlatform];
     songList.innerHTML = '';
 
-    // Search current platform first, then fetch all in background
     try {
-        const songs = await searchPlatform(currentPlatform, query);
-        resultCount.textContent = `${songs.length} 首`;
+        const data = await apiCall({ action: 'search', platform: currentPlatform, keyword: query, page: '1' });
+        let songs = data.result || [];
+
+        // Handle raw proxy responses for netease/kuwo
+        if (!songs.length && data.result) {
+            if (currentPlatform === 'netease') songs = parseNeteaseRaw(data);
+            else if (currentPlatform === 'kuwo') songs = parseKuwoRaw(data);
+        }
+        // If we got songs through proxyFetch fallback
+        if (!Array.isArray(songs) && currentPlatform === 'netease') songs = parseNeteaseRaw(data);
+        if (!Array.isArray(songs) && currentPlatform === 'kuwo') songs = parseKuwoRaw(data);
+
+        resultCount.textContent = songs.length + ' 首';
         renderSongs(songs);
     } catch (err) {
-        console.error('Search error:', err);
-        songList.innerHTML = `<div class="empty-state"><p>搜索失败</p><p class="sub">${err.message}</p></div>`;
+        songList.innerHTML = '<div class="empty-state"><p>搜索失败</p><p class="sub">' + err.message + '</p></div>';
     } finally {
         showLoading(false);
     }
 }
 
-async function searchPlatform(platform, query) {
-    const url = searchUrls[platform];
-    const params = platformSearchParams[platform](query);
-    const fullUrl = `${url}?${params}`;
-    const proxyUrl = PROXY_URL + encodeURIComponent(fullUrl);
-
-    const headers = {};
-    if (platform === 'kuwo') { headers['Referer'] = 'https://www.kuwo.cn/'; headers['csrf'] = '1'; }
-    if (platform === 'bilibili') headers['Referer'] = 'https://www.bilibili.com/';
-    if (platform === 'migu') headers['Referer'] = 'https://m.music.migu.cn/';
-    if (platform === 'netease') headers['Referer'] = 'https://music.163.com/';
-
-    const resp = await fetch(proxyUrl, { headers });
-    const data = await resp.text();
-    const songsJson = parsers[platform](data);
-    return JSON.parse(songsJson);
-}
-
-// ─── Render search results ───
 function renderSongs(songs) {
-    if (songs.length === 0) {
-        songList.innerHTML = '<div class="empty-state"><p>没有找到结果</p><p class="sub">试试其他平台或关键词</p></div>';
-        return;
-    }
-    songList.innerHTML = songs.map((song, i) => {
-        const inPlaylist = playlistSongIndex(song);
-        return `
-        <div class="song-item" data-song='${escapeHtml(JSON.stringify(song))}'>
+    if (!songs.length) { songList.innerHTML = '<div class="empty-state"><p>没有找到结果</p></div>'; return; }
+    songList.innerHTML = songs.map((song, i) => `
+        <div class="song-item" data-song='${esc(JSON.stringify(song))}'>
             <span class="song-index">${i + 1}</span>
-            <img class="song-cover" src="${song.cover_url || ''}" onerror="this.style.display='none'" loading="lazy">
+            <img class="song-cover" src="${song.img_url || song.cover_url || ''}" onerror="this.style.display='none'" loading="lazy">
             <div class="song-info">
-                <div class="song-title">${escapeHtml(song.title)}</div>
-                <div class="song-artist">${escapeHtml(song.artist)}</div>
+                <div class="song-title">${esc(song.title)}</div>
+                <div class="song-artist">${esc(song.artist)}${song.disable ? ' <span style="color:#ef4444;">[VIP]</span>' : ''}</div>
             </div>
-            <span class="song-duration">${format_duration(song.duration)}</span>
+            <span class="song-duration">${format_duration(song.duration || 0)}</span>
             <div class="song-actions">
-                <button class="btn-icon ${inPlaylist >= 0 ? 'added' : ''}" data-action="add" title="添加到播放列表">
-                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
-                </button>
+                <button class="btn-icon" data-action="add"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg></button>
             </div>
-        </div>`;
-    }).join('');
+        </div>`).join('');
 
     songList.querySelectorAll('.song-item').forEach(item => {
-        item.addEventListener('dblclick', () => {
-            const song = JSON.parse(item.dataset.song);
-            addToPlaylist(song);
-            playSong(playlist.size() - 1);
-        });
+        item.addEventListener('dblclick', () => addAndPlay(JSON.parse(item.dataset.song)));
         item.addEventListener('click', (e) => {
-            const btn = e.target.closest('[data-action="add"]');
-            if (btn) {
-                e.stopPropagation();
-                const song = JSON.parse(item.dataset.song);
-                addToPlaylist(song);
-                btn.classList.add('added');
-                toast('已添加到播放列表', 'success');
-            }
+            if (e.target.closest('[data-action="add"]')) { e.stopPropagation(); addToPlaylist(JSON.parse(item.dataset.song)); toast('已添加', 'success'); e.target.closest('[data-action="add"]').classList.add('added'); }
         });
     });
 }
 
 function showCharts(show) {
-    if (show) {
-        chartsContainer.style.display = 'block';
-        songList.style.display = 'none';
-        resultTitle.textContent = '热门推荐';
-        resultCount.textContent = '';
-    } else {
-        chartsContainer.style.display = 'none';
-        songList.style.display = 'block';
-    }
+    chartsContainer.style.display = show ? 'block' : 'none';
+    songList.style.display = show ? 'none' : 'block';
+    if (show) { resultTitle.textContent = '热门推荐'; resultCount.textContent = ''; }
 }
 
-// ─── NetEase playlist import ───
-function openImportModal() {
-    $('#importModal').style.display = 'flex';
-    $('#playlistIdInput').focus();
-}
-
-function closeImportModal() {
-    $('#importModal').style.display = 'none';
-    $('#playlistIdInput').value = '';
-    $('#importLoading').style.display = 'none';
-}
+// ─── NetEase import ───
+function openImportModal() { $('#importModal').style.display = 'flex'; $('#playlistIdInput').focus(); }
+function closeImportModal() { $('#importModal').style.display = 'none'; $('#playlistIdInput').value = ''; $('#importLoading').style.display = 'none'; }
 
 async function importPlaylist() {
     const input = $('#playlistIdInput').value.trim();
     if (!input) return;
-
     let playlistId = input;
-    // Extract ID from URL if full URL is pasted
-    const urlMatch = input.match(/playlist\?id=(\d+)/) || input.match(/playlist\/(\d+)/);
-    if (urlMatch) playlistId = urlMatch[1];
+    const m = input.match(/playlist\?id=(\d+)/) || input.match(/playlist\/(\d+)/);
+    if (m) playlistId = m[1];
 
-    const loadingEl = $('#importLoading');
-    loadingEl.style.display = 'flex';
-
+    $('#importLoading').style.display = 'flex';
     try {
-        const url = `https://music.163.com/api/playlist/detail?id=${playlistId}`;
-        const proxyUrl = PROXY_URL + encodeURIComponent(url);
-        const resp = await fetch(proxyUrl, { headers: { 'Referer': 'https://music.163.com/' } });
-        const data = await resp.text();
-        const songsJson = parse_netease_playlist(data);
-        const songs = JSON.parse(songsJson);
-
-        if (songs.length === 0) {
-            toast('歌单为空或无法访问', 'error');
-            return;
-        }
-
+        const data = await apiCall({ action: 'playlist', platform: 'netease', listId: 'neplaylist_' + playlistId });
+        if (!data.tracks || !data.tracks.length) { toast('歌单为空', 'error'); return; }
         playlist.clear();
-        songs.forEach(s => playlist.add_song(JSON.stringify(s)));
+        data.tracks.forEach(s => playlist.add_song(JSON.stringify(s)));
         renderPlaylist();
         closeImportModal();
-        toast(`成功导入 ${songs.length} 首歌曲`, 'success');
+        toast(`导入 ${data.tracks.length} 首`, 'success');
         playSong(0);
-    } catch (err) {
-        console.error('Import error:', err);
-        toast('导入失败，请检查歌单ID', 'error');
-    } finally {
-        loadingEl.style.display = 'none';
-    }
+    } catch { toast('导入失败', 'error'); } finally { $('#importLoading').style.display = 'none'; }
 }
 
 // ─── Playlist ───
-function addToPlaylist(song) {
-    playlist.add_song(JSON.stringify(song));
-    renderPlaylist();
-}
+function addToPlaylist(song) { playlist.add_song(JSON.stringify(song)); renderPlaylist(); }
+function addAndPlay(song) { addToPlaylist(song); playSong(playlist.size() - 1); }
 
 function removeFromPlaylist(index) {
     playlist.remove_song(index);
-    if (currentPlaylistIndex === index) {
-        currentPlaylistIndex = -1;
-        stopPlayback();
-    } else if (currentPlaylistIndex > index) {
-        currentPlaylistIndex--;
-    }
+    if (currentPlaylistIndex === index) { currentPlaylistIndex = -1; stopPlayback(); }
+    else if (currentPlaylistIndex > index) currentPlaylistIndex--;
     renderPlaylist();
 }
 
-function clearPlaylist() {
-    playlist.clear();
-    currentPlaylistIndex = -1;
-    stopPlayback();
-    renderPlaylist();
-}
+function clearPlaylist() { playlist.clear(); currentPlaylistIndex = -1; stopPlayback(); renderPlaylist(); }
 
 function renderPlaylist() {
-    const allSongs = JSON.parse(playlist.get_all_songs());
+    const songs = JSON.parse(playlist.get_all_songs());
     playlistCount.textContent = playlist.size();
-
-    if (allSongs.length === 0) {
-        playlistSongs.innerHTML = '<div class="empty-state small"><p>播放列表为空</p><p class="sub">搜索歌曲或导入歌单</p></div>';
-        return;
-    }
-
-    playlistSongs.innerHTML = allSongs.map((song, i) => `
+    if (!songs.length) { playlistSongs.innerHTML = '<div class="empty-state small"><p>播放列表为空</p></div>'; return; }
+    playlistSongs.innerHTML = songs.map((s, i) => `
         <div class="playlist-item ${i === currentPlaylistIndex ? 'active' : ''}" data-index="${i}">
-            <img class="song-cover" src="${song.cover_url || ''}" onerror="this.style.display='none'" loading="lazy">
+            <img class="song-cover" src="${s.img_url || s.cover_url || ''}" onerror="this.style.display='none'" loading="lazy">
             <div class="song-info">
-                <div class="song-title">${escapeHtml(song.title)}</div>
-                <div class="song-artist">${escapeHtml(song.artist)} · ${platformNames[song.platform]}</div>
+                <div class="song-title">${esc(s.title)}</div>
+                <div class="song-artist">${esc(s.artist)} · ${platformNames[s.source] || s.platform || ''}</div>
             </div>
-            <button class="btn-remove" data-action="remove">
-                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
-            </button>
+            <button class="btn-remove" data-action="remove"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
         </div>`).join('');
 
     playlistSongs.querySelectorAll('.playlist-item').forEach(item => {
         item.addEventListener('click', (e) => {
-            if (e.target.closest('[data-action="remove"]')) {
-                e.stopPropagation();
-                removeFromPlaylist(parseInt(item.dataset.index));
-                return;
-            }
+            if (e.target.closest('[data-action="remove"]')) { e.stopPropagation(); removeFromPlaylist(parseInt(item.dataset.index)); return; }
             playSong(parseInt(item.dataset.index));
         });
     });
 }
 
 function playlistSongIndex(song) {
-    const allSongs = JSON.parse(playlist.get_all_songs());
-    return allSongs.findIndex(s => s.id === song.id && s.platform === song.platform);
+    return JSON.parse(playlist.get_all_songs()).findIndex(s => s.id === song.id && (s.source || s.platform) === (song.source || song.platform));
 }
 
 // ─── Playback ───
 async function playSong(index) {
     if (index < 0 || index >= playlist.size()) return;
-
     playlist.set_current_index(index);
     currentPlaylistIndex = index;
     const song = JSON.parse(playlist.get_current_song());
+    const platform = song.source || song.platform;
 
     playerTitle.textContent = song.title;
-    playerArtist.textContent = `${song.artist} · ${platformNames[song.platform] || song.platform}`;
-    playerCover.src = song.cover_url || '';
-    platformBadge.textContent = platformNames[song.platform] || '';
+    playerArtist.textContent = song.artist + ' · ' + (platformNames[platform] || platform);
+    playerCover.src = song.img_url || song.cover_url || '';
+    platformBadge.textContent = platformNames[platform] || platform;
+    platformBadge.style.color = platformColors[platform] || '';
 
-    if (song.platform === 'netease') {
-        audio.src = build_netease_song_url(song.id);
-    } else {
-        audio.src = '';
-        toast(`${platformNames[song.platform]} 歌曲需要平台Cookie支持`, 'error');
+    // Get play URL from backend
+    try {
+        const extra = song.song_id ? JSON.stringify({ content_id: song.content_id, quality: song.quality }) : '';
+        const data = await apiCall({ action: 'bootstrap', platform, trackId: song.id, extra });
+        if (data.url) {
+            audio.src = data.url;
+            audio.play().catch(() => toast('播放失败', 'error'));
+            setPlayState(true);
+        } else {
+            toast('该歌曲需要VIP或暂不可用', 'error');
+        }
+    } catch (err) {
+        toast('获取播放地址失败', 'error');
     }
-
-    audio.play().catch(() => {
-        toast('播放失败，请尝试网易云歌曲或切换平台', 'error');
-    });
-
-    setPlayState(true);
     renderPlaylist();
 }
 
 function togglePlay() {
-    if (!audio.src || audio.src === window.location.href) return;
-    if (audio.paused) { audio.play(); setPlayState(true); }
-    else { audio.pause(); setPlayState(false); }
+    if (!audio.src || audio.src === location.href) return;
+    audio.paused ? audio.play().then(() => setPlayState(true)) : (audio.pause(), setPlayState(false));
 }
 
-function setPlayState(playing) {
-    const icon = $('#playIcon');
-    icon.innerHTML = playing
-        ? '<path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>'
-        : '<path d="M8 5v14l11-7z"/>';
-}
+function setPlayState(p) { $('#playIcon').innerHTML = p ? '<path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>' : '<path d="M8 5v14l11-7z"/>'; }
 
-function playPrev() {
-    if (playlist.size() === 0) return;
-    playSong(currentPlaylistIndex <= 0 ? playlist.size() - 1 : currentPlaylistIndex - 1);
-}
-
-function playNext() {
-    if (playlist.size() === 0) return;
-    playSong((currentPlaylistIndex + 1) % playlist.size());
-}
+function playPrev() { if (playlist.size()) playSong(currentPlaylistIndex <= 0 ? playlist.size() - 1 : currentPlaylistIndex - 1); }
+function playNext() { if (playlist.size()) playSong((currentPlaylistIndex + 1) % playlist.size()); }
 
 function stopPlayback() {
-    audio.pause();
-    audio.src = '';
-    playerTitle.textContent = '未在播放';
-    playerArtist.textContent = '选择一首歌曲开始播放';
-    playerCover.src = '';
-    platformBadge.textContent = '';
-    progressFill.style.width = '0%';
-    currentTimeEl.textContent = '00:00';
-    durationEl.textContent = '00:00';
+    audio.pause(); audio.src = '';
+    playerTitle.textContent = '未在播放'; playerArtist.textContent = '选择一首歌曲开始播放';
+    playerCover.src = ''; platformBadge.textContent = '';
+    progressFill.style.width = '0%'; currentTimeEl.textContent = '00:00'; durationEl.textContent = '00:00';
     setPlayState(false);
 }
 
 function onSongEnd() { playNext(); }
-function onAudioError() { toast('播放失败，请尝试其他平台', 'error'); }
+function onAudioError() { toast('播放失败', 'error'); }
 
-// ─── Progress & volume ───
-function updateProgress() {
-    if (audio.duration) {
-        progressFill.style.width = (audio.currentTime / audio.duration) * 100 + '%';
-        currentTimeEl.textContent = formatTime(audio.currentTime);
-    }
-}
-function updateDuration() { durationEl.textContent = formatTime(audio.duration); }
-function seek(e) {
-    const pct = (e.clientX - progressBar.getBoundingClientRect().left) / progressBar.offsetWidth;
-    audio.currentTime = pct * audio.duration;
-}
-function setVolume(e) {
-    const pct = Math.max(0, Math.min(1, (e.clientX - volumeBar.getBoundingClientRect().left) / volumeBar.offsetWidth));
-    audio.volume = pct;
-    volumeFill.style.width = (pct * 100) + '%';
-}
+// ─── Progress & Volume ───
+function updateProgress() { if (audio.duration) { progressFill.style.width = (audio.currentTime / audio.duration) * 100 + '%'; currentTimeEl.textContent = fmt(audio.currentTime); } }
+function updateDuration() { durationEl.textContent = fmt(audio.duration); }
+function seek(e) { audio.currentTime = ((e.clientX - progressBar.getBoundingClientRect().left) / progressBar.offsetWidth) * audio.duration; }
+function setVolume(e) { const v = Math.max(0, Math.min(1, (e.clientX - volumeBar.getBoundingClientRect().left) / volumeBar.offsetWidth)); audio.volume = v; volumeFill.style.width = (v * 100) + '%'; }
 function toggleMute() {
     audio.muted = !audio.muted;
-    $('#volumeIcon').innerHTML = audio.muted
-        ? '<path d="M11 5L6 9H2v6h4l5 5V5zM23 9l-6 6M17 9l6 6"/>'
-        : '<path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/>';
+    $('#volumeIcon').innerHTML = audio.muted ? '<path d="M11 5L6 9H2v6h4l5 5V5zM23 9l-6 6M17 9l6 6"/>' : '<path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/>';
 }
 
 // ─── Utils ───
 function showLoading(s) { loading.style.display = s ? 'flex' : 'none'; }
-function formatTime(s) { if (isNaN(s)) return '00:00'; const m = Math.floor(s / 60); const sec = Math.floor(s % 60); return `${m.toString().padStart(2,'0')}:${sec.toString().padStart(2,'0')}`; }
-function escapeHtml(str) { return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+function fmt(s) { if (isNaN(s)) return '00:00'; const m = Math.floor(s / 60); return m.toString().padStart(2, '0') + ':' + Math.floor(s % 60).toString().padStart(2, '0'); }
+function esc(str) { return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
 function toast(msg, type = 'info') {
-    let container = $('.toast-container');
-    if (!container) { container = document.createElement('div'); container.className = 'toast-container'; document.body.appendChild(container); }
-    const el = document.createElement('div');
-    el.className = `toast ${type}`; el.textContent = msg;
-    container.appendChild(el);
+    let c = $('.toast-container'); if (!c) { c = document.createElement('div'); c.className = 'toast-container'; document.body.appendChild(c); }
+    const el = document.createElement('div'); el.className = `toast ${type}`; el.textContent = msg; c.appendChild(el);
     setTimeout(() => el.remove(), 2500);
 }
 
-// ─── Boot ───
 bootstrap().catch(console.error);
