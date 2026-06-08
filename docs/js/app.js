@@ -100,7 +100,10 @@ async function bootstrap() {
 async function apiCall(params) {
     const qs = new URLSearchParams(params).toString();
     const resp = await fetch(API + '?' + qs);
-    return resp.json();
+    const text = await resp.text();
+    try { return JSON.parse(text); } catch {
+        throw new Error('服务器返回异常，请稍后重试');
+    }
 }
 
 // ─── Charts ───
@@ -202,16 +205,25 @@ async function search() {
 
     try {
         const data = await apiCall({ action: 'search', platform: currentPlatform, keyword: query, page: '1' });
+
+        // Handle proxy errors (platform returned HTML)
+        if (data._proxy_error) {
+            songList.innerHTML = '<div class="empty-state"><p>' + platformNames[currentPlatform] + ' 接口暂不可用</p><p class="sub">平台API返回异常 (HTTP ' + data.status + ')，试试其他平台</p></div>';
+            return;
+        }
+
+        // Handle worker errors
+        if (data.error) {
+            songList.innerHTML = '<div class="empty-state"><p>搜索失败</p><p class="sub">' + data.error + '</p></div>';
+            return;
+        }
+
         let songs = data.result || [];
 
         // Handle raw proxy responses for netease/kuwo
-        if (!songs.length && data.result) {
-            if (currentPlatform === 'netease') songs = parseNeteaseRaw(data);
-            else if (currentPlatform === 'kuwo') songs = parseKuwoRaw(data);
+        if (!songs.length && data.result && (currentPlatform === 'netease' || currentPlatform === 'kuwo')) {
+            songs = currentPlatform === 'netease' ? parseNeteaseRaw(data) : parseKuwoRaw(data);
         }
-        // If we got songs through proxyFetch fallback
-        if (!Array.isArray(songs) && currentPlatform === 'netease') songs = parseNeteaseRaw(data);
-        if (!Array.isArray(songs) && currentPlatform === 'kuwo') songs = parseKuwoRaw(data);
 
         resultCount.textContent = songs.length + ' 首';
         renderSongs(songs);
