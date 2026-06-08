@@ -298,11 +298,14 @@ function renderSongs(songs) {
 }
 
 function showCharts(show) {
-    chartsContainer.style.display = show ? '' : 'none';
-    songList.style.display = show ? 'none' : '';
     if (show) {
+        chartsContainer.style.display = 'block';
+        songList.style.display = 'none';
         resultTitle.textContent = '热门推荐';
         resultCount.textContent = '';
+    } else {
+        chartsContainer.style.display = 'none';
+        songList.style.display = 'block';
     }
 }
 
