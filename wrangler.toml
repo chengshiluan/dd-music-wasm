@@ -1,6 +1,7 @@
 # 顶点音乐 DD Music - Cloudflare Pages
 name = "dd-music"
 compatibility_date = "2025-06-01"
+pages_build_output_dir = "docs"
 
 [build]
 command = "which cargo >/dev/null 2>&1 && source $HOME/.cargo/env 2>/dev/null; which wasm-pack >/dev/null 2>&1 && wasm-pack build --target web --out-dir docs/pkg"

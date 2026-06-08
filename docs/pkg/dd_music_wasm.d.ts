@@ -25,7 +25,11 @@ export function format_duration(seconds: bigint): string;
 
 export function get_platforms(): string;
 
+export function parse_bilibili_popular(data: string): string;
+
 export function parse_bilibili_search(data: string): string;
+
+export function parse_kugou_chart(data: string): string;
 
 export function parse_kugou_search(data: string): string;
 
@@ -33,7 +37,13 @@ export function parse_kuwo_search(data: string): string;
 
 export function parse_migu_search(data: string): string;
 
+export function parse_netease_chart(data: string): string;
+
+export function parse_netease_playlist(data: string): string;
+
 export function parse_netease_search(data: string): string;
+
+export function parse_qq_chart(data: string): string;
 
 export function parse_qq_search(data: string): string;
 
@@ -49,11 +59,14 @@ export interface InitOutput {
     readonly escape_html: (a: number, b: number) => [number, number];
     readonly format_duration: (a: bigint) => [number, number];
     readonly get_platforms: () => [number, number];
+    readonly parse_bilibili_popular: (a: number, b: number) => [number, number];
     readonly parse_bilibili_search: (a: number, b: number) => [number, number];
-    readonly parse_kugou_search: (a: number, b: number) => [number, number];
+    readonly parse_kugou_chart: (a: number, b: number) => [number, number];
     readonly parse_kuwo_search: (a: number, b: number) => [number, number];
     readonly parse_migu_search: (a: number, b: number) => [number, number];
+    readonly parse_netease_chart: (a: number, b: number) => [number, number];
     readonly parse_netease_search: (a: number, b: number) => [number, number];
+    readonly parse_qq_chart: (a: number, b: number) => [number, number];
     readonly parse_qq_search: (a: number, b: number) => [number, number];
     readonly playlist_add_song: (a: number, b: number, c: number) => void;
     readonly playlist_clear: (a: number) => void;
@@ -65,6 +78,8 @@ export interface InitOutput {
     readonly playlist_set_current_index: (a: number, b: number) => void;
     readonly playlist_size: (a: number) => number;
     readonly version: () => [number, number];
+    readonly parse_kugou_search: (a: number, b: number) => [number, number];
+    readonly parse_netease_playlist: (a: number, b: number) => [number, number];
     readonly __wbindgen_externrefs: WebAssembly.Table;
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;

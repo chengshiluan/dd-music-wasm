@@ -17,6 +17,7 @@ export async function onRequestGet(context) {
         'c.y.qq.com',
         'u.y.qq.com',
         'songsearch.kugou.com',
+        'www.kugou.com',
         'www.kuwo.cn',
         'api.bilibili.com',
         'm.music.migu.cn',
@@ -59,6 +60,12 @@ export async function onRequestGet(context) {
     }
     if (targetUrl.includes('migu.cn')) {
         proxyHeaders.set('Referer', 'https://m.music.migu.cn/');
+    }
+    if (targetUrl.includes('music.163.com')) {
+        proxyHeaders.set('Referer', 'https://music.163.com/');
+    }
+    if (targetUrl.includes('kugou.com')) {
+        proxyHeaders.set('Referer', 'https://www.kugou.com/');
     }
 
     try {

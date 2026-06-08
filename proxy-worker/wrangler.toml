@@ -1,0 +1,7 @@
+name = "dd-music-domain-proxy"
+main = "src/index.js"
+compatibility_date = "2025-06-01"
+
+[[routes]]
+pattern = "ddmusic.eu.cc/*"
+zone_name = "ddmusic.eu.cc"

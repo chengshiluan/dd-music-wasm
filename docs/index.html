@@ -32,39 +32,92 @@
                     </svg>
                 </button>
             </div>
+            <button id="neteaseImportBtn" class="btn-import" title="导入网易云歌单">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/>
+                </svg>
+                <span class="btn-import-text">导入网易云歌单</span>
+            </button>
         </div>
     </header>
 
+    <!-- NetEase import modal -->
+    <div class="modal-overlay" id="importModal" style="display:none;">
+        <div class="modal">
+            <div class="modal-header">
+                <span>导入网易云歌单</span>
+                <button class="modal-close" id="closeImportModal">
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M18 6L6 18M6 6l12 12"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="modal-body">
+                <input type="text" id="playlistIdInput" placeholder="输入网易云歌单ID或分享链接..." class="modal-input">
+                <p class="modal-hint">支持歌单ID（如 3778678）或分享链接</p>
+                <button id="importPlaylistBtn" class="btn-primary">导入歌单</button>
+                <div class="loading" id="importLoading" style="display:none;">
+                    <div class="spinner"></div><span>导入中...</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Platform tabs -->
     <nav class="platform-tabs" id="platformTabs">
-        <button class="platform-tab active" data-platform="netease" style="--platform-color: #e60026;">网易云</button>
+        <button class="platform-tab active" data-platform="bilibili" style="--platform-color: #fb7299;">🔥 B站</button>
+        <button class="platform-tab" data-platform="netease" style="--platform-color: #e60026;">网易云</button>
         <button class="platform-tab" data-platform="qq" style="--platform-color: #31c27c;">QQ音乐</button>
         <button class="platform-tab" data-platform="kugou" style="--platform-color: #2e8bff;">酷狗</button>
         <button class="platform-tab" data-platform="kuwo" style="--platform-color: #ffcc00;">酷我</button>
-        <button class="platform-tab" data-platform="bilibili" style="--platform-color: #fb7299;">B站</button>
         <button class="platform-tab" data-platform="migu" style="--platform-color: #e5004f;">咪咕</button>
     </nav>
 
     <!-- Main content -->
     <div class="main-container">
-        <!-- Search results -->
         <div class="content-panel">
             <div class="panel-header">
-                <span id="resultTitle">搜索歌曲开始听歌</span>
+                <span id="resultTitle">热门推荐</span>
                 <span id="resultCount" class="result-count"></span>
             </div>
             <div class="loading" id="loading" style="display:none;">
-                <div class="spinner"></div>
-                <span>搜索中...</span>
+                <div class="spinner"></div><span>搜索中...</span>
             </div>
-            <div class="song-list" id="songList">
-                <div class="empty-state">
-                    <svg viewBox="0 0 24 24" width="64" height="64" fill="none" stroke="currentColor" stroke-width="1" opacity="0.3">
-                        <path d="M9 18V5l12-2v13"/>
-                        <circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>
-                    </svg>
-                    <p>搜索你喜欢的音乐</p>
-                    <p class="sub">支持网易云、QQ音乐、酷狗、酷我、B站、咪咕六大平台</p>
+            <div class="song-list" id="songList"></div>
+            <!-- Chart sections -->
+            <div class="charts-container" id="chartsContainer">
+                <div class="chart-section" id="chartBilibili">
+                    <div class="chart-header">
+                        <span class="chart-title">🔥 B站热门音乐</span>
+                        <button class="chart-play-all" data-chart="bilibili">
+                            <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M8 5v14l11-7z"/></svg> 全部播放
+                        </button>
+                    </div>
+                    <div class="chart-songs" id="chartSongsBilibili">
+                        <div class="chart-loading"><div class="spinner"></div></div>
+                    </div>
+                </div>
+                <div class="chart-section" id="chartNetease">
+                    <div class="chart-header">
+                        <span class="chart-title" style="color:#e60026;">🎵 网易云热歌榜</span>
+                        <button class="chart-play-all" data-chart="netease">
+                            <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M8 5v14l11-7z"/></svg> 全部播放
+                        </button>
+                    </div>
+                    <div class="chart-songs" id="chartSongsNetease">
+                        <div class="chart-loading"><div class="spinner"></div></div>
+                    </div>
+                </div>
+                <div class="chart-section" id="chartQQ">
+                    <div class="chart-header">
+                        <span class="chart-title" style="color:#31c27c;">🎶 QQ音乐热门</span>
+                        <button class="chart-play-all" data-chart="qq">
+                            <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M8 5v14l11-7z"/></svg> 全部播放
+                        </button>
+                    </div>
+                    <div class="chart-songs" id="chartSongsQQ">
+                        <div class="chart-loading"><div class="spinner"></div></div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -132,9 +185,7 @@
         </div>
     </div>
 
-    <!-- Hidden audio element -->
     <audio id="audio"></audio>
-
     <script type="module" src="js/app.js"></script>
 </body>
 </html>

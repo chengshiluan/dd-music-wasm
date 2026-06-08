@@ -300,6 +300,124 @@ pub fn parse_migu_search(data: &str) -> String {
     serde_json::to_string(&songs).unwrap()
 }
 
+// ─── Chart / Top list parsing ───
+
+#[wasm_bindgen]
+pub fn parse_netease_chart(data: &str) -> String {
+    let parsed: serde_json::Value = match serde_json::from_str(data) {
+        Ok(v) => v,
+        Err(_) => return "[]".into(),
+    };
+    let mut songs: Vec<Song> = Vec::new();
+    if let Some(tracks) = parsed["playlist"]["tracks"].as_array() {
+        for item in tracks {
+            let id = item["id"].as_i64().map(|i| i.to_string()).unwrap_or_default();
+            let title = item["name"].as_str().unwrap_or("未知").to_string();
+            let artist = item["ar"][0]["name"].as_str().unwrap_or("未知").to_string();
+            let album = item["al"]["name"].as_str().unwrap_or("").to_string();
+            let cover_url = item["al"]["picUrl"].as_str().unwrap_or("").to_string();
+            let duration = item["dt"].as_i64().unwrap_or(0) as u64 / 1000;
+            songs.push(Song {
+                id,
+                title,
+                artist,
+                album,
+                platform: "netease".into(),
+                cover_url,
+                audio_url: "".into(),
+                lyric_url: "".into(),
+                duration,
+            });
+        }
+    }
+    serde_json::to_string(&songs).unwrap()
+}
+
+// Also parses netease user playlist (same format as chart)
+#[wasm_bindgen]
+pub fn parse_netease_playlist(data: &str) -> String {
+    parse_netease_chart(data)
+}
+
+#[wasm_bindgen]
+pub fn parse_qq_chart(data: &str) -> String {
+    let parsed: serde_json::Value = match serde_json::from_str(data) {
+        Ok(v) => v,
+        Err(_) => return "[]".into(),
+    };
+    let mut songs: Vec<Song> = Vec::new();
+    let songlist = parsed["data"]["songlist"].as_array()
+        .or_else(|| parsed["songlist"].as_array());
+    if let Some(list) = songlist {
+        for item in list {
+            let data = &item["data"];
+            let songmid = data["songmid"].as_str().unwrap_or("").to_string();
+            let title = data["songname"].as_str().unwrap_or("未知").to_string();
+            let artist = data["singer"][0]["name"].as_str().unwrap_or("未知").to_string();
+            let album = data["albumname"].as_str().unwrap_or("").to_string();
+            let albummid = data["albummid"].as_str().unwrap_or("").to_string();
+            let cover_url = if !albummid.is_empty() {
+                format!("https://y.gtimg.cn/music/photo_new/T002R300x300M000{}.jpg", albummid)
+            } else {
+                String::new()
+            };
+            let duration = data["interval"].as_i64().unwrap_or(0) as u64;
+            songs.push(Song {
+                id: songmid,
+                title,
+                artist,
+                album,
+                platform: "qq".into(),
+                cover_url,
+                audio_url: "".into(),
+                lyric_url: "".into(),
+                duration,
+            });
+        }
+    }
+    serde_json::to_string(&songs).unwrap()
+}
+
+#[wasm_bindgen]
+pub fn parse_bilibili_popular(data: &str) -> String {
+    let parsed: serde_json::Value = match serde_json::from_str(data) {
+        Ok(v) => v,
+        Err(_) => return "[]".into(),
+    };
+    let mut songs: Vec<Song> = Vec::new();
+    let list = parsed["data"]["list"].as_array()
+        .or_else(|| parsed["data"].as_array());
+    if let Some(items) = list {
+        for item in items {
+            let bvid = item["bvid"].as_str().unwrap_or("").to_string();
+            let title = item["title"].as_str().unwrap_or("未知").to_string();
+            let artist = item["owner"]["name"].as_str()
+                .unwrap_or(item["author"].as_str().unwrap_or("未知")).to_string();
+            let cover_url = item["pic"].as_str().unwrap_or("").to_string();
+            let duration_str = item["duration"].as_str().unwrap_or("0:00");
+            let duration = parse_duration(duration_str);
+            songs.push(Song {
+                id: bvid,
+                title,
+                artist,
+                album: String::new(),
+                platform: "bilibili".into(),
+                cover_url,
+                audio_url: "".into(),
+                lyric_url: "".into(),
+                duration,
+            });
+        }
+    }
+    serde_json::to_string(&songs).unwrap()
+}
+
+#[wasm_bindgen]
+pub fn parse_kugou_chart(data: &str) -> String {
+    // Kugou chart uses same format as search
+    parse_kugou_search(data)
+}
+
 // ─── Playlist management ───
 
 #[wasm_bindgen]
