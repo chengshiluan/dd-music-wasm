@@ -65,12 +65,12 @@
 
     <!-- Platform tabs -->
     <nav class="platform-tabs" id="platformTabs">
-        <button class="platform-tab active" data-platform="bilibili" style="--platform-color: #fb7299;">🔥 B站</button>
-        <button class="platform-tab" data-platform="netease" style="--platform-color: #e60026;">网易云</button>
+        <button class="platform-tab active" data-platform="netease" style="--platform-color: #e60026;">网易云</button>
         <button class="platform-tab" data-platform="qq" style="--platform-color: #31c27c;">QQ音乐</button>
         <button class="platform-tab" data-platform="kugou" style="--platform-color: #2e8bff;">酷狗</button>
         <button class="platform-tab" data-platform="kuwo" style="--platform-color: #ffcc00;">酷我</button>
         <button class="platform-tab" data-platform="migu" style="--platform-color: #e5004f;">咪咕</button>
+        <button class="platform-tab" data-platform="bilibili" style="--platform-color: #fb7299;">B站</button>
     </nav>
 
     <!-- Main content -->
@@ -84,19 +84,8 @@
                 <div class="spinner"></div><span>搜索中...</span>
             </div>
             <div class="song-list" id="songList" style="display:none;"></div>
-            <!-- Chart sections -->
+            <!-- Chart sections - NetEase only -->
             <div class="charts-container" id="chartsContainer">
-                <div class="chart-section" id="chartBilibili">
-                    <div class="chart-header">
-                        <span class="chart-title">🔥 B站热门音乐</span>
-                        <button class="chart-play-all" data-chart="bilibili">
-                            <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M8 5v14l11-7z"/></svg> 全部播放
-                        </button>
-                    </div>
-                    <div class="chart-songs" id="chartSongsBilibili">
-                        <div class="chart-loading"><div class="spinner"></div></div>
-                    </div>
-                </div>
                 <div class="chart-section" id="chartNetease">
                     <div class="chart-header">
                         <span class="chart-title" style="color:#e60026;">🎵 网易云热歌榜</span>
@@ -105,17 +94,6 @@
                         </button>
                     </div>
                     <div class="chart-songs" id="chartSongsNetease">
-                        <div class="chart-loading"><div class="spinner"></div></div>
-                    </div>
-                </div>
-                <div class="chart-section" id="chartQQ">
-                    <div class="chart-header">
-                        <span class="chart-title" style="color:#31c27c;">🎶 QQ音乐热门</span>
-                        <button class="chart-play-all" data-chart="qq">
-                            <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M8 5v14l11-7z"/></svg> 全部播放
-                        </button>
-                    </div>
-                    <div class="chart-songs" id="chartSongsQQ">
                         <div class="chart-loading"><div class="spinner"></div></div>
                     </div>
                 </div>

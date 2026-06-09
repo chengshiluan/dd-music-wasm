@@ -2,7 +2,7 @@ import init, { Playlist, format_duration } from '../pkg/dd_music_wasm.js';
 
 // ─── State ───
 let playlist;
-let currentPlatform = 'bilibili';
+let currentPlatform = 'netease';
 let currentPlaylistIndex = -1;
 
 const API = '/api/proxy';
@@ -108,7 +108,7 @@ async function apiCall(params) {
 
 // ─── Charts ───
 async function loadCharts() {
-    await Promise.all([loadBilibiliPopular(), loadNeteaseCharts(), loadQQCharts()]);
+    await loadNeteaseCharts();
 }
 
 async function loadBilibiliPopular() {
