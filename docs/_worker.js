@@ -63,17 +63,20 @@ function htmlDecode(str) {
 
 async function neSearch(kw, pg) {
   const offset = 20 * ((pg || 1) - 1);
-  const data = `s=${encodeURIComponent(kw)}&offset=${offset}&limit=20&type=1`;
-  const d = await proxyPost('https://music.163.com/api/search/pc', data, 'https://music.163.com/');
+  // /api/search/pc is blocked (-462), use /api/cloudsearch/pc which still works
+  const d = await proxyGet('https://music.163.com/api/cloudsearch/pc?s=' + encodeURIComponent(kw) + '&offset=' + offset + '&limit=20&type=1', 'https://music.163.com/');
   if (d._proxy_error) return d;
   const songs = d.result?.songs || [];
   return {
     result: songs.map(s => ({
       id: 'netrack_' + s.id, title: s.name,
-      artist: s.artists?.[0]?.name || '', artist_id: 'neartist_' + (s.artists?.[0]?.id || ''),
-      album: s.album?.name || '', album_id: 'nealbum_' + (s.album?.id || ''),
+      artist: s.ar?.[0]?.name || s.artists?.[0]?.name || '',
+      artist_id: 'neartist_' + (s.ar?.[0]?.id || s.artists?.[0]?.id || ''),
+      album: s.al?.name || s.album?.name || '',
+      album_id: 'nealbum_' + (s.al?.id || s.album?.id || ''),
       source: 'netease', source_url: 'https://music.163.com/#/song?id=' + s.id,
-      img_url: s.album?.picUrl || '', duration: Math.floor((s.duration || 0) / 1000),
+      img_url: s.al?.picUrl || s.album?.picUrl || '',
+      duration: Math.floor((s.dt || s.duration || 0) / 1000),
       disable: s.fee === 4 || s.fee === 1,
     })),
     total: d.result?.songCount || 0,
@@ -111,7 +114,7 @@ async function neChart() {
 
 async function nePlaylistTracks(listId) {
   const pid = listId.replace('neplaylist_', '');
-  const d = await proxyGet('https://music.163.com/api/playlist/detail?id=' + pid, 'https://music.163.com/');
+  const d = await proxyGet('https://music.163.com/api/v6/playlist/detail?id=' + pid + '&n=1000&s=0', 'https://music.163.com/');
   if (d._proxy_error || !d.playlist) return { tracks: [], info: {} };
   const info = {
     id: 'neplaylist_' + pid, title: d.playlist.name,
