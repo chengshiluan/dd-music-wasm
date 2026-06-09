@@ -217,64 +217,17 @@ async function kgBootstrap(tid) {
 }
 
 // ─── Kuwo (酷我) ───
-// Kuwo requires a Secret header computed from a token cookie.
-// Ported from Listen1 kuwo.js
-
-function kuwoEncrypt(token, key) {
-  if (!key || key.length <= 0) return null;
-  let n = '';
-  for (let i = 0; i < key.length; i++) n += key.charCodeAt(i).toString();
-  const r = Math.floor(n.length / 5);
-  const o = parseInt(n.charAt(r) + n.charAt(2 * r) + n.charAt(3 * r) + n.charAt(4 * r) + n.charAt(5 * r));
-  const l = Math.ceil(key.length / 2);
-  const c = Math.pow(2, 31) - 1;
-  if (o < 2) return null;
-  let d = Math.round(1e9 * Math.random()) % 1e8;
-  n += d.toString();
-  while (n.length > 10) n = (parseInt(n.substring(0, 10)) + parseInt(n.substring(10, n.length))).toString();
-  n = (o * parseInt(n) + l) % c;
-  let f = '';
-  let h2;
-  for (let i = 0; i < token.length; i++) {
-    h2 = parseInt(token.charCodeAt(i) ^ Math.floor((n / c) * 255));
-    f += (h2 < 16 ? '0' : '') + h2.toString(16);
-    n = (o * n + l) % c;
-  }
-  d = d.toString(16);
-  while (d.length < 8) d = '0' + d;
-  return f + d;
-}
-
-async function kuwoGetToken() {
-  const cookieName = 'Hm_Iuvt_cdb524f42f23cer9b268564v7y735ewrq2324';
-  // Try to get token from kuwo.cn
-  const r = await fetch('https://www.kuwo.cn/', {
-    headers: { 'User-Agent': UA, 'Accept': 'text/html' },
-    redirect: 'follow',
-  });
-  const setCookie = r.headers.getAll?.('set-cookie') || r.headers.get('set-cookie') || '';
-  // Extract token from set-cookie
-  const match = setCookie.match(new RegExp(cookieName + '=([^;]+)'));
-  if (match) return match[1];
-  // If no token from set-cookie, try the search directly with csrf
-  return '';
-}
+// kuwo.cn is behind Cloudflare, which blocks Worker-to-Worker requests (1101).
+// Use the CSRF approach which works for search, and the play URL API for bootstrap.
 
 async function kuwoRequest(url) {
-  const token = await kuwoGetToken();
-  const cookieName = 'Hm_Iuvt_cdb524f42f23cer9b268564v7y735ewrq2324';
+  // kuwo.cn is behind Cloudflare, Worker-to-Worker requests get 1101
+  // Try with csrf/cookie headers first
   const headers = {
     'User-Agent': UA, 'Accept': 'application/json',
     'Referer': 'https://www.kuwo.cn/',
-    'Cookie': 'Hm_Iuvt=1',
+    'Cookie': 'Hm_Iuvt=1', 'csrf': '1',
   };
-  if (token) {
-    const secret = kuwoEncrypt(token, cookieName);
-    if (secret) headers['Secret'] = secret;
-    headers['Cookie'] += '; ' + cookieName + '=' + token;
-  } else {
-    headers['csrf'] = '1';
-  }
   const r = await fetch(url, { headers, redirect: 'follow' });
   const t = await r.text();
   try { return JSON.parse(t); } catch {
@@ -285,20 +238,21 @@ async function kuwoRequest(url) {
 async function kwSearch(kw, pg) {
   const pn = (pg || 1) - 1;
   const url = `https://www.kuwo.cn/search/searchMusicBykeyWord?vipver=1&client=kt&ft=music&cluster=0&strategy=2012&encoding=utf8&rformat=json&mobi=1&issubtitle=1&show_copyright_off=1&pn=${pn}&rn=20&all=${encodeURIComponent(kw)}`;
-  const d = await kuwoRequest(url);
-  if (d._proxy_error) {
-    // Fallback to abslist format
-    const list = d.abslist || [];
-    return { result: list.map(s => ({
-      id: 'kwtrack_' + s.DC_TARGETID, title: htmlDecode(s.NAME),
-      artist: htmlDecode(s.ARTIST), artist_id: 'kwartist_' + s.ARTISTID,
-      album: htmlDecode(s.ALBUM), album_id: 'kwalbum_' + s.ALBUMID,
-      source: 'kuwo', source_url: 'https://www.kuwo.cn/play_detail/' + s.DC_TARGETID,
-      img_url: s.web_albumpic_short ? `https://img2.kuwo.cn/star/albumcover/${s.web_albumpic_short}` : '',
-      duration: parseInt(s.DURATION || 0), lyric_url: s.DC_TARGETID,
-    })), total: parseInt(d.HIT || 0) };
+  try {
+    const d = await kuwoRequest(url);
+    if (d._proxy_error) {
+      // Fallback: try without Secret header
+      const d2 = await proxyGet(url, 'https://www.kuwo.cn/', { 'csrf': '1', 'Cookie': 'Hm_Iuvt=1' });
+      if (d2._proxy_error) return { result: [], total: 0 };
+      return formatKuwoResults(d2);
+    }
+    return formatKuwoResults(d);
+  } catch (e) {
+    return { result: [], total: 0, error: e.message };
   }
-  // Handle new format
+}
+
+function formatKuwoResults(d) {
   const list = d.abslist || [];
   return { result: list.map(s => ({
     id: 'kwtrack_' + s.DC_TARGETID, title: htmlDecode(s.NAME),
@@ -307,7 +261,7 @@ async function kwSearch(kw, pg) {
     source: 'kuwo', source_url: 'https://www.kuwo.cn/play_detail/' + s.DC_TARGETID,
     img_url: s.web_albumpic_short ? `https://img2.kuwo.cn/star/albumcover/${s.web_albumpic_short}` : '',
     duration: parseInt(s.DURATION || 0), lyric_url: s.DC_TARGETID,
-  })), total: parseInt(d.HIT || 0) };
+  })), total: parseInt(d.HIT || d.TOTAL || 0) };
 }
 
 async function kwBootstrap(tid) {
@@ -351,7 +305,7 @@ async function biBootstrap(tid) {
   const [bvid, cidPart] = ip.split('-');
   let cid = cidPart;
   if (!cid) {
-    const info = await proxyGet('https://api.bilibili.com/x/web-interface/view?bvid=' + bvid, 'https://www.bilibili.com/');
+    const info = await proxyGet('https://api.bilibili.com/x/web-interface/view?bvid=' + bvid, 'https://www.bilibili.com/', { 'Cookie': BI_COOKIES });
     if (info._proxy_error) return { url: null };
     cid = info.data?.pages?.[0]?.cid;
   }
@@ -369,7 +323,7 @@ async function biBootstrap(tid) {
 }
 
 async function biPopular() {
-  const d = await proxyGet('https://api.bilibili.com/x/web-interface/popular?ps=20', 'https://www.bilibili.com/');
+  const d = await proxyGet('https://api.bilibili.com/x/web-interface/popular?ps=20', 'https://www.bilibili.com/', { 'Cookie': BI_COOKIES, 'Origin': 'https://www.bilibili.com' });
   if (d._proxy_error) return [];
   return (d.data?.list || []).map(v => ({
     id: 'bitrack_v_' + v.bvid, title: v.title,
