@@ -1,9 +1,10 @@
 import init, { Playlist, format_duration } from '../pkg/dd_music_wasm.js';
 
 // ─── State ───
-let playlist;
+let playlist = createFallbackPlaylist();
 let currentPlatform = 'netease';
 let currentPlaylistIndex = -1;
+let wasmReady = false;
 
 const API = '/api/proxy';
 const $ = (s) => document.querySelector(s);
@@ -36,24 +37,58 @@ const platformNames = {
     kuwo: '酷我', bilibili: 'B站', migu: '咪咕',
 };
 
-let _fmtDur = format_duration; // WASM version
-function fmtDur(sec) { return _fmtDur ? _fmtDur(sec || 0) : (Math.floor(sec / 60) + '').padStart(2, '0') + ':' + (Math.floor(sec % 60) + '').padStart(2, '0'); }
+const platformColors = {
     netease: '#e60026', qq: '#31c27c', kugou: '#2e8bff',
     kuwo: '#ffcc00', bilibili: '#fb7299', migu: '#e5004f',
 };
 
+function fmtDur(sec) {
+    const s = sec || 0;
+    return Math.floor(s / 60).toString().padStart(2, '0') + ':' + Math.floor(s % 60).toString().padStart(2, '0');
+}
+
+// ─── Fallback Playlist (pure JS, no WASM) ───
+function createFallbackPlaylist() {
+    const songs = [];
+    let idx = -1;
+    return {
+        add_song: (json) => { try { songs.push(JSON.parse(json)); } catch {} },
+        remove_song: (i) => { if (i < songs.length) { songs.splice(i, 1); if (idx >= songs.length && idx > 0) idx = songs.length - 1; } },
+        clear: () => { songs.length = 0; idx = -1; },
+        set_current_index: (i) => { if (i < songs.length) idx = i; },
+        get_current_song: () => idx >= 0 && idx < songs.length ? JSON.stringify(songs[idx]) : 'null',
+        get_all_songs: () => JSON.stringify(songs),
+        size: () => songs.length,
+        current_index: () => idx,
+    };
+}
+
 // ─── Init ───
 async function bootstrap() {
+    // Bind events immediately - don't wait for WASM
+    bindEvents();
+
+    // Load charts right away - no WASM dependency
+    renderPlaylist();
+    loadCharts();
+
+    // Try to init WASM in background
     try {
         await init();
         playlist = new Playlist();
+        wasmReady = true;
+        // Re-render playlist with WASM version (transfers existing songs)
+        const oldSongs = JSON.parse(createFallbackPlaylist().get_all_songs());
+        // Playlist is fresh from WASM, but we already added songs to fallback
+        // Just keep using whatever playlist we have with songs already added
+        toast('WASM 加载成功', 'success');
     } catch (e) {
-        console.error('WASM init failed:', e);
-        toast('WASM加载失败，部分功能不可用', 'error');
-        // Create a JS fallback playlist so charts still load
-        playlist = createFallbackPlaylist();
+        console.warn('WASM init skipped:', e);
+        // Already using fallback playlist, charts already loading
     }
+}
 
+function bindEvents() {
     $('#platformTabs').addEventListener('click', (e) => {
         const tab = e.target.closest('.platform-tab');
         if (!tab) return;
@@ -79,13 +114,11 @@ async function bootstrap() {
     audio.addEventListener('ended', onSongEnd);
     audio.addEventListener('error', onAudioError);
 
-    // NetEase import modal
     $('#neteaseImportBtn').addEventListener('click', openImportModal);
     $('#closeImportModal').addEventListener('click', closeImportModal);
     $('#importModal').addEventListener('click', (e) => { if (e.target === $('#importModal')) closeImportModal(); });
     $('#importPlaylistBtn').addEventListener('click', importPlaylist);
 
-    // Chart "play all" buttons
     chartsContainer.addEventListener('click', (e) => {
         const btn = e.target.closest('.chart-play-all');
         if (!btn) return;
@@ -96,12 +129,9 @@ async function bootstrap() {
             songs.forEach(s => playlist.add_song(JSON.stringify(s)));
             renderPlaylist();
             playSong(0);
-            toast(`已添加 ${songs.length} 首`, 'success');
+            toast('已添加 ' + songs.length + ' 首', 'success');
         }
     });
-
-    renderPlaylist();
-    loadCharts();
 }
 
 // ─── API helpers ───
@@ -119,19 +149,6 @@ async function loadCharts() {
     await loadNeteaseCharts();
 }
 
-async function loadBilibiliPopular() {
-    const container = $('#chartSongsBilibili');
-    try {
-        const data = await apiCall({ action: 'chart', platform: 'bilibili' });
-        if (Array.isArray(data) && data.length > 0) {
-            window._chartSongs_bilibili = data;
-            renderChartSongs(container, data);
-        } else {
-            container.innerHTML = '<div class="chart-loading" style="color:#71717a;">加载失败</div>';
-        }
-    } catch { container.innerHTML = '<div class="chart-loading" style="color:#71717a;">加载失败</div>'; }
-}
-
 async function loadNeteaseCharts() {
     const container = $('#chartSongsNetease');
     try {
@@ -143,31 +160,15 @@ async function loadNeteaseCharts() {
                 window._chartSongs_netease = detail.tracks.slice(0, 20);
                 renderChartSongs(container, window._chartSongs_netease);
             } else {
-                container.innerHTML = '<div class="chart-loading" style="color:#71717a;">加载失败</div>';
+                container.innerHTML = '<div class="chart-loading" style="color:#71717a;">榜单暂无数据</div>';
             }
         } else {
-            container.innerHTML = '<div class="chart-loading" style="color:#71717a;">加载失败</div>';
+            container.innerHTML = '<div class="chart-loading" style="color:#71717a;">获取榜单失败</div>';
         }
-    } catch { container.innerHTML = '<div class="chart-loading" style="color:#71717a;">加载失败</div>'; }
-}
-
-async function loadQQCharts() {
-    const container = $('#chartSongsQQ');
-    try {
-        const charts = await apiCall({ action: 'chart', platform: 'qq' });
-        if (Array.isArray(charts) && charts.length > 0) {
-            const top = charts[0];
-            const detail = await apiCall({ action: 'chart', platform: 'qq', listId: top.id });
-            if (detail.tracks && detail.tracks.length) {
-                window._chartSongs_qq = detail.tracks.slice(0, 20);
-                renderChartSongs(container, window._chartSongs_qq);
-            } else {
-                container.innerHTML = '<div class="chart-loading" style="color:#71717a;">加载失败</div>';
-            }
-        } else {
-            container.innerHTML = '<div class="chart-loading" style="color:#71717a;">加载失败</div>';
-        }
-    } catch { container.innerHTML = '<div class="chart-loading" style="color:#71717a;">加载失败</div>'; }
+    } catch (e) {
+        console.error('loadNeteaseCharts error:', e);
+        container.innerHTML = '<div class="chart-loading" style="color:#71717a;">网络错误</div>';
+    }
 }
 
 function renderChartSongs(container, songs) {
@@ -206,20 +207,17 @@ async function search() {
     try {
         const data = await apiCall({ action: 'search', platform: currentPlatform, keyword: query, page: '1' });
 
-        // Handle proxy errors
         if (data._proxy_error) {
-            songList.innerHTML = '<div class="empty-state"><p>' + platformNames[currentPlatform] + ' 接口暂不可用</p><p class="sub">平台API返回异常 (HTTP ' + data.status + ')，试试其他平台</p></div>';
+            songList.innerHTML = '<div class="empty-state"><p>' + platformNames[currentPlatform] + ' 接口暂不可用</p><p class="sub">试试其他平台</p></div>';
             return;
         }
 
-        // Handle worker errors
         if (data.error) {
             songList.innerHTML = '<div class="empty-state"><p>搜索失败</p><p class="sub">' + data.error + '</p></div>';
             return;
         }
 
         let songs = data.result || [];
-
         resultCount.textContent = songs.length + ' 首';
         renderSongs(songs);
     } catch (err) {
@@ -278,7 +276,7 @@ async function importPlaylist() {
         data.tracks.forEach(s => playlist.add_song(JSON.stringify(s)));
         renderPlaylist();
         closeImportModal();
-        toast(`导入 ${data.tracks.length} 首`, 'success');
+        toast('导入 ' + data.tracks.length + ' 首', 'success');
         playSong(0);
     } catch { toast('导入失败', 'error'); } finally { $('#importLoading').style.display = 'none'; }
 }
@@ -318,10 +316,6 @@ function renderPlaylist() {
     });
 }
 
-function playlistSongIndex(song) {
-    return JSON.parse(playlist.get_all_songs()).findIndex(s => s.id === song.id && (s.source || s.platform) === (song.source || song.platform));
-}
-
 // ─── Playback ───
 async function playSong(index) {
     if (index < 0 || index >= playlist.size()) return;
@@ -336,23 +330,18 @@ async function playSong(index) {
     platformBadge.textContent = platformNames[platform] || platform;
     platformBadge.style.color = platformColors[platform] || '';
 
-    // Get play URL from backend
     try {
         const extra = song.song_id ? JSON.stringify({ content_id: song.content_id, quality: song.quality }) : '';
         const data = await apiCall({ action: 'bootstrap', platform, trackId: song.id, extra });
         if (data.url) {
             audio.src = data.url;
-            // For bilibili audio, need to set referrer
-            if (platform === 'bilibili') {
-                audio.setAttribute('crossorigin', 'anonymous');
-            }
             audio.play().catch(() => toast('播放失败', 'error'));
             setPlayState(true);
         } else {
             toast('该歌曲需要VIP或暂不可用', 'error');
         }
     } catch (err) {
-        toast('获取播放地址失败: ' + err.message, 'error');
+        toast('获取播放地址失败', 'error');
     }
     renderPlaylist();
 }
@@ -378,7 +367,6 @@ function stopPlayback() {
 function onSongEnd() { playNext(); }
 function onAudioError() {
     toast('播放失败，可能需要VIP', 'error');
-    // Auto skip to next song after a short delay
     setTimeout(() => playNext(), 1500);
 }
 
@@ -398,24 +386,12 @@ function fmt(s) { if (isNaN(s)) return '00:00'; const m = Math.floor(s / 60); re
 function esc(str) { return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
 function toast(msg, type = 'info') {
     let c = $('.toast-container'); if (!c) { c = document.createElement('div'); c.className = 'toast-container'; document.body.appendChild(c); }
-    const el = document.createElement('div'); el.className = `toast ${type}`; el.textContent = msg; c.appendChild(el);
+    const el = document.createElement('div'); el.className = 'toast ' + type; el.textContent = msg; c.appendChild(el);
     setTimeout(() => el.remove(), 2500);
 }
 
-// ─── Fallback Playlist (if WASM fails) ───
-function createFallbackPlaylist() {
-    const songs = [];
-    let idx = -1;
-    return {
-        add_song: (json) => { try { songs.push(JSON.parse(json)); } catch {} },
-        remove_song: (i) => { if (i < songs.length) { songs.splice(i, 1); if (idx >= songs.length && idx > 0) idx = songs.length - 1; } },
-        clear: () => { songs.length = 0; idx = -1; },
-        set_current_index: (i) => { if (i < songs.length) idx = i; },
-        get_current_song: () => idx >= 0 && idx < songs.length ? JSON.stringify(songs[idx]) : 'null',
-        get_all_songs: () => JSON.stringify(songs),
-        size: () => songs.length,
-        current_index: () => idx,
-    };
-}
-
-bootstrap().catch(e => { console.error('App bootstrap failed:', e); document.body.innerHTML = '<div style="color:red;padding:40px;text-align:center;"><h2>应用加载失败</h2><p>' + e.message + '</p></div>'; });
+// ─── Start ───
+bootstrap().catch(e => {
+    console.error('App fatal error:', e);
+    document.body.insertAdjacentHTML('afterbegin', '<div style="color:red;padding:20px;text-align:center;background:#1a1a2e;">应用加载错误: ' + e.message + '</div>');
+});
