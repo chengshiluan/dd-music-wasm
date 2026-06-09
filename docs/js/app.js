@@ -115,8 +115,12 @@ async function loadBilibiliPopular() {
     const container = $('#chartSongsBilibili');
     try {
         const data = await apiCall({ action: 'chart', platform: 'bilibili' });
-        if (Array.isArray(data)) { window._chartSongs_bilibili = data; renderChartSongs(container, data); }
-        else container.innerHTML = '<div class="chart-loading" style="color:#71717a;">加载失败</div>';
+        if (Array.isArray(data) && data.length > 0) {
+            window._chartSongs_bilibili = data;
+            renderChartSongs(container, data);
+        } else {
+            container.innerHTML = '<div class="chart-loading" style="color:#71717a;">加载失败</div>';
+        }
     } catch { container.innerHTML = '<div class="chart-loading" style="color:#71717a;">加载失败</div>'; }
 }
 
@@ -127,7 +131,12 @@ async function loadNeteaseCharts() {
         if (Array.isArray(charts) && charts.length > 0) {
             const hot = charts[0];
             const detail = await apiCall({ action: 'chart', platform: 'netease', listId: hot.id });
-            if (detail.tracks) { window._chartSongs_netease = detail.tracks.slice(0, 20); renderChartSongs(container, window._chartSongs_netease); }
+            if (detail.tracks && detail.tracks.length) {
+                window._chartSongs_netease = detail.tracks.slice(0, 20);
+                renderChartSongs(container, window._chartSongs_netease);
+            } else {
+                container.innerHTML = '<div class="chart-loading" style="color:#71717a;">加载失败</div>';
+            }
         } else {
             container.innerHTML = '<div class="chart-loading" style="color:#71717a;">加载失败</div>';
         }
@@ -141,7 +150,12 @@ async function loadQQCharts() {
         if (Array.isArray(charts) && charts.length > 0) {
             const top = charts[0];
             const detail = await apiCall({ action: 'chart', platform: 'qq', listId: top.id });
-            if (detail.tracks) { window._chartSongs_qq = detail.tracks.slice(0, 20); renderChartSongs(container, window._chartSongs_qq); }
+            if (detail.tracks && detail.tracks.length) {
+                window._chartSongs_qq = detail.tracks.slice(0, 20);
+                renderChartSongs(container, window._chartSongs_qq);
+            } else {
+                container.innerHTML = '<div class="chart-loading" style="color:#71717a;">加载失败</div>';
+            }
         } else {
             container.innerHTML = '<div class="chart-loading" style="color:#71717a;">加载失败</div>';
         }
@@ -152,7 +166,7 @@ function renderChartSongs(container, songs) {
     container.innerHTML = songs.slice(0, 20).map((song, i) => `
         <div class="chart-song-item" data-song='${esc(JSON.stringify(song))}'>
             <span class="song-index">${i + 1}</span>
-            <img class="song-cover" src="${song.img_url || song.cover_url || ''}" onerror="this.style.display='none'" loading="lazy">
+            <img class="song-cover" src="${song.img_url || song.cover_url || song.cover_img_url || ''}" onerror="this.style.display='none'" loading="lazy">
             <div class="song-info">
                 <div class="song-title">${esc(song.title)}</div>
                 <div class="song-artist">${esc(song.artist)}</div>
@@ -171,28 +185,6 @@ function renderChartSongs(container, songs) {
     });
 }
 
-// ─── Platform-specific search result parsers (for proxy responses) ───
-function parseNeteaseRaw(data) {
-    const s = data.result?.songs || [];
-    return s.map(x => ({
-        id: 'netrack_' + x.id, title: x.name, artist: x.artists?.[0]?.name || '', artist_id: 'neartist_' + (x.artists?.[0]?.id || ''),
-        album: x.album?.name || '', album_id: 'nealbum_' + (x.album?.id || ''), source: 'netease',
-        source_url: 'https://music.163.com/#/song?id=' + x.id, img_url: x.album?.picUrl || '',
-        duration: Math.floor((x.duration || 0) / 1000), disable: x.fee === 4 || x.fee === 1,
-    }));
-}
-
-function parseKuwoRaw(data) {
-    const s = data.abslist || [];
-    return s.map(x => ({
-        id: 'kwtrack_' + x.DC_TARGETID, title: x.NAME, artist: x.ARTIST, artist_id: 'kwartist_' + x.ARTISTID,
-        album: x.ALBUM, album_id: 'kwalbum_' + x.ALBUMID, source: 'kuwo',
-        source_url: 'https://www.kuwo.cn/play_detail/' + x.DC_TARGETID,
-        img_url: 'https://img2.kuwo.cn/star/albumcover/' + (x.web_albumpic_short || ''),
-        duration: parseInt(x.DURATION || 0), lyric_url: x.DC_TARGETID,
-    }));
-}
-
 // ─── Search ───
 async function search() {
     const query = searchInput.value.trim();
@@ -206,7 +198,7 @@ async function search() {
     try {
         const data = await apiCall({ action: 'search', platform: currentPlatform, keyword: query, page: '1' });
 
-        // Handle proxy errors (platform returned HTML)
+        // Handle proxy errors
         if (data._proxy_error) {
             songList.innerHTML = '<div class="empty-state"><p>' + platformNames[currentPlatform] + ' 接口暂不可用</p><p class="sub">平台API返回异常 (HTTP ' + data.status + ')，试试其他平台</p></div>';
             return;
@@ -219,11 +211,6 @@ async function search() {
         }
 
         let songs = data.result || [];
-
-        // Handle raw proxy responses for netease/kuwo
-        if (!songs.length && data.result && (currentPlatform === 'netease' || currentPlatform === 'kuwo')) {
-            songs = currentPlatform === 'netease' ? parseNeteaseRaw(data) : parseKuwoRaw(data);
-        }
 
         resultCount.textContent = songs.length + ' 首';
         renderSongs(songs);
@@ -278,7 +265,7 @@ async function importPlaylist() {
     $('#importLoading').style.display = 'flex';
     try {
         const data = await apiCall({ action: 'playlist', platform: 'netease', listId: 'neplaylist_' + playlistId });
-        if (!data.tracks || !data.tracks.length) { toast('歌单为空', 'error'); return; }
+        if (!data.tracks || !data.tracks.length) { toast('歌单为空或获取失败', 'error'); return; }
         playlist.clear();
         data.tracks.forEach(s => playlist.add_song(JSON.stringify(s)));
         renderPlaylist();
@@ -307,7 +294,7 @@ function renderPlaylist() {
     if (!songs.length) { playlistSongs.innerHTML = '<div class="empty-state small"><p>播放列表为空</p></div>'; return; }
     playlistSongs.innerHTML = songs.map((s, i) => `
         <div class="playlist-item ${i === currentPlaylistIndex ? 'active' : ''}" data-index="${i}">
-            <img class="song-cover" src="${s.img_url || s.cover_url || ''}" onerror="this.style.display='none'" loading="lazy">
+            <img class="song-cover" src="${s.img_url || s.cover_url || s.cover_img_url || ''}" onerror="this.style.display='none'" loading="lazy">
             <div class="song-info">
                 <div class="song-title">${esc(s.title)}</div>
                 <div class="song-artist">${esc(s.artist)} · ${platformNames[s.source] || s.platform || ''}</div>
@@ -337,7 +324,7 @@ async function playSong(index) {
 
     playerTitle.textContent = song.title;
     playerArtist.textContent = song.artist + ' · ' + (platformNames[platform] || platform);
-    playerCover.src = song.img_url || song.cover_url || '';
+    playerCover.src = song.img_url || song.cover_url || song.cover_img_url || '';
     platformBadge.textContent = platformNames[platform] || platform;
     platformBadge.style.color = platformColors[platform] || '';
 
@@ -347,13 +334,17 @@ async function playSong(index) {
         const data = await apiCall({ action: 'bootstrap', platform, trackId: song.id, extra });
         if (data.url) {
             audio.src = data.url;
+            // For bilibili audio, need to set referrer
+            if (platform === 'bilibili') {
+                audio.setAttribute('crossorigin', 'anonymous');
+            }
             audio.play().catch(() => toast('播放失败', 'error'));
             setPlayState(true);
         } else {
             toast('该歌曲需要VIP或暂不可用', 'error');
         }
     } catch (err) {
-        toast('获取播放地址失败', 'error');
+        toast('获取播放地址失败: ' + err.message, 'error');
     }
     renderPlaylist();
 }
@@ -377,7 +368,11 @@ function stopPlayback() {
 }
 
 function onSongEnd() { playNext(); }
-function onAudioError() { toast('播放失败', 'error'); }
+function onAudioError() {
+    toast('播放失败，可能需要VIP', 'error');
+    // Auto skip to next song after a short delay
+    setTimeout(() => playNext(), 1500);
+}
 
 // ─── Progress & Volume ───
 function updateProgress() { if (audio.duration) { progressFill.style.width = (audio.currentTime / audio.duration) * 100 + '%'; currentTimeEl.textContent = fmt(audio.currentTime); } }
@@ -392,7 +387,7 @@ function toggleMute() {
 // ─── Utils ───
 function showLoading(s) { loading.style.display = s ? 'flex' : 'none'; }
 function fmt(s) { if (isNaN(s)) return '00:00'; const m = Math.floor(s / 60); return m.toString().padStart(2, '0') + ':' + Math.floor(s % 60).toString().padStart(2, '0'); }
-function esc(str) { return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+function esc(str) { return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
 function toast(msg, type = 'info') {
     let c = $('.toast-container'); if (!c) { c = document.createElement('div'); c.className = 'toast-container'; document.body.appendChild(c); }
     const el = document.createElement('div'); el.className = `toast ${type}`; el.textContent = msg; c.appendChild(el);
