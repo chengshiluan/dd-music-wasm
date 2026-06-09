@@ -192,31 +192,21 @@ async function qqToplistSongs(lid) {
 
 // ─── Kugou (酷狗) ───
 async function kgSearch(kw, pg) {
-  const d = await proxyGet('https://songsearch.kugou.com/song_search_v2?keyword=' + encodeURIComponent(kw) + '&page=' + (pg || 1) + '&pagesize=20', 'https://www.kugou.com/');
+  // songsearch.kugou.com blocks from Cloudflare IPs, use mobile CDN API
+  const d = await proxyGet('http://mobilecdnbj.kugou.com/api/v3/search/song?keyword=' + encodeURIComponent(kw) + '&page=' + (pg || 1) + '&pagesize=20', 'https://www.kugou.com/');
   if (d._proxy_error) return d;
-  const lists = d.data?.lists || [];
-  // Get cover images by fetching song info for each track
-  const results = [];
-  for (const s of lists) {
-    const track = {
-      id: 'kgtrack_' + s.FileHash, title: s.SongName, artist: s.SingerName,
-      album: s.AlbumName, album_id: 'kgalbum_' + s.AlbumID, source: 'kugou',
-      source_url: 'https://www.kugou.com/song/#hash=' + s.FileHash,
-      img_url: '', duration: s.Duration || 0,
-    };
-    // Fetch cover image from song info
-    try {
-      const info = await proxyGet('https://m.kugou.com/app/i/getSongInfo.php?cmd=playInfo&hash=' + s.FileHash, 'https://m.kugou.com/', { 'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 14_3 like Mac OS X)' });
-      if (info && !info._proxy_error) {
-        if (info.img) track.img_url = info.img.replace('{size}', '400');
-        else if (info.album_img) track.img_url = info.album_img.replace('{size}', '400');
-        else if (info.songName) track.title = info.songName;
-        if (info.singerName) track.artist = info.singerName;
-      }
-    } catch {}
-    results.push(track);
-  }
-  return { result: results, total: d.data?.total || 0 };
+  const lists = d.data?.info || [];
+  return {
+    result: lists.map(s => ({
+      id: 'kgtrack_' + s.hash, title: s.songname || s.filename?.split('-')?.pop()?.trim() || '',
+      artist: s.singername || s.filename?.split('-')?.[0]?.trim() || '',
+      album: s.album_name || '', album_id: 'kgalbum_' + (s.album_id || ''),
+      source: 'kugou', source_url: 'https://www.kugou.com/song/#hash=' + s.hash,
+      img_url: s.album_img ? s.album_img.replace('{size}', '400') : '',
+      duration: s.duration || 0,
+    })),
+    total: d.data?.total || 0,
+  };
 }
 
 async function kgBootstrap(tid) {
@@ -332,9 +322,11 @@ async function kwBootstrap(tid) {
 }
 
 // ─── Bilibili ───
+const BI_COOKIES = 'buvid3=0; buvid4=0; b_nut=0; buvid_fp=0; fingerprint=0; CURRENT_FNVAL=16';
+
 async function biSearch(kw, pg) {
   const url = 'https://api.bilibili.com/x/web-interface/search/type?__refresh__=true&page=' + (pg || 1) + '&page_size=20&platform=pc&highlight=1&keyword=' + encodeURIComponent(kw) + '&search_type=video';
-  const d = await proxyGet(url, 'https://www.bilibili.com/', { 'Cookie': 'buvid3=0' });
+  const d = await proxyGet(url, 'https://www.bilibili.com/', { 'Cookie': BI_COOKIES, 'Origin': 'https://www.bilibili.com' });
   if (d._proxy_error) return d;
   const s = d.data?.result || [];
   return { result: s.map(x => biFormat(x)), total: d.data?.numResults || 0 };
@@ -365,12 +357,12 @@ async function biBootstrap(tid) {
   }
   if (!cid) return { url: null };
   // Use fnval=16 for DASH audio (higher quality)
-  const d = await proxyGet('https://api.bilibili.com/x/player/playurl?fnval=16&bvid=' + bvid + '&cid=' + cid, 'https://www.bilibili.com/', { 'Cookie': 'buvid3=0' });
+  const d = await proxyGet('https://api.bilibili.com/x/player/playurl?fnval=16&bvid=' + bvid + '&cid=' + cid, 'https://www.bilibili.com/', { 'Cookie': BI_COOKIES });
   if (d._proxy_error) return { url: null };
   const au = d.data?.dash?.audio?.[0]?.baseUrl;
   if (au) return { url: au, platform: 'bilibili' };
   // Fallback: try fnval=0 for MP3
-  const d2 = await proxyGet('https://api.bilibili.com/x/player/playurl?fnval=0&bvid=' + bvid + '&cid=' + cid, 'https://www.bilibili.com/', { 'Cookie': 'buvid3=0' });
+  const d2 = await proxyGet('https://api.bilibili.com/x/player/playurl?fnval=0&bvid=' + bvid + '&cid=' + cid, 'https://www.bilibili.com/', { 'Cookie': BI_COOKIES });
   if (d2._proxy_error) return { url: null };
   const durl = d2.data?.durl?.[0]?.url;
   return durl ? { url: durl, platform: 'bilibili' } : { url: null };
