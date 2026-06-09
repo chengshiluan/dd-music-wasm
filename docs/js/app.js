@@ -36,15 +36,23 @@ const platformNames = {
     kuwo: '酷我', bilibili: 'B站', migu: '咪咕',
 };
 
-const platformColors = {
+let _fmtDur = format_duration; // WASM version
+function fmtDur(sec) { return _fmtDur ? _fmtDur(sec || 0) : (Math.floor(sec / 60) + '').padStart(2, '0') + ':' + (Math.floor(sec % 60) + '').padStart(2, '0'); }
     netease: '#e60026', qq: '#31c27c', kugou: '#2e8bff',
     kuwo: '#ffcc00', bilibili: '#fb7299', migu: '#e5004f',
 };
 
 // ─── Init ───
 async function bootstrap() {
-    await init();
-    playlist = new Playlist();
+    try {
+        await init();
+        playlist = new Playlist();
+    } catch (e) {
+        console.error('WASM init failed:', e);
+        toast('WASM加载失败，部分功能不可用', 'error');
+        // Create a JS fallback playlist so charts still load
+        playlist = createFallbackPlaylist();
+    }
 
     $('#platformTabs').addEventListener('click', (e) => {
         const tab = e.target.closest('.platform-tab');
@@ -171,7 +179,7 @@ function renderChartSongs(container, songs) {
                 <div class="song-title">${esc(song.title)}</div>
                 <div class="song-artist">${esc(song.artist)}</div>
             </div>
-            <span class="song-duration">${format_duration(song.duration || 0)}</span>
+            <span class="song-duration">${fmtDur(song.duration || 0)}</span>
             <div class="song-actions">
                 <button class="btn-icon" data-action="add"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg></button>
             </div>
@@ -231,7 +239,7 @@ function renderSongs(songs) {
                 <div class="song-title">${esc(song.title)}</div>
                 <div class="song-artist">${esc(song.artist)}${song.disable ? ' <span style="color:#ef4444;">[VIP]</span>' : ''}</div>
             </div>
-            <span class="song-duration">${format_duration(song.duration || 0)}</span>
+            <span class="song-duration">${fmtDur(song.duration || 0)}</span>
             <div class="song-actions">
                 <button class="btn-icon" data-action="add"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg></button>
             </div>
@@ -394,4 +402,20 @@ function toast(msg, type = 'info') {
     setTimeout(() => el.remove(), 2500);
 }
 
-bootstrap().catch(console.error);
+// ─── Fallback Playlist (if WASM fails) ───
+function createFallbackPlaylist() {
+    const songs = [];
+    let idx = -1;
+    return {
+        add_song: (json) => { try { songs.push(JSON.parse(json)); } catch {} },
+        remove_song: (i) => { if (i < songs.length) { songs.splice(i, 1); if (idx >= songs.length && idx > 0) idx = songs.length - 1; } },
+        clear: () => { songs.length = 0; idx = -1; },
+        set_current_index: (i) => { if (i < songs.length) idx = i; },
+        get_current_song: () => idx >= 0 && idx < songs.length ? JSON.stringify(songs[idx]) : 'null',
+        get_all_songs: () => JSON.stringify(songs),
+        size: () => songs.length,
+        current_index: () => idx,
+    };
+}
+
+bootstrap().catch(e => { console.error('App bootstrap failed:', e); document.body.innerHTML = '<div style="color:red;padding:40px;text-align:center;"><h2>应用加载失败</h2><p>' + e.message + '</p></div>'; });
