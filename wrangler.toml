@@ -1,4 +1,8 @@
-# 顶点音乐 DD Music - Cloudflare Pages
 name = "dd-music"
 compatibility_date = "2025-06-01"
 pages_build_output_dir = "docs"
+
+[[d1_databases]]
+binding = "dd_music_db"
+database_name = "dd-music-db"
+database_id = "c1b46de6-066f-405c-8863-c6c2a7eaa181"
