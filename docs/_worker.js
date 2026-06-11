@@ -101,15 +101,16 @@ async function neChart() {
   }));
 }
 
-async function nePlaylistTracks(listId) {
+async function nePlaylistTracks(listId, offset, limit) {
   const pid = listId.replace('neplaylist_', '');
-  const d = await proxyGet('https://music.163.com/api/v6/playlist/detail?id=' + pid + '&n=1000&s=0', 'https://music.163.com/');
-  if (d._proxy_error || !d.playlist) return { tracks: [], info: {} };
-  const info = {
-    id: 'neplaylist_' + pid, title: d.playlist.name,
-    cover_img_url: d.playlist.coverImgUrl,
-    source_url: 'https://music.163.com/#/playlist?id=' + pid,
-  };
+  const off = parseInt(offset) || 0;
+  const lim = parseInt(limit) || 50;
+  // Use playlist/track/all for paginated track loading
+  const url = 'https://music.163.com/api/v6/playlist/detail?id=' + pid + '&n=' + lim + '&s=0' + (off > 0 ? '&offset=' + off : '');
+  const d = await proxyGet(url, 'https://music.163.com/');
+  if (d._proxy_error || !d.playlist) return { tracks: [], total: 0, offset: off, limit: lim };
+  const allTrackIds = d.playlist.trackIds || [];
+  const total = allTrackIds.length || d.playlist.trackCount || 0;
   const tracks = (d.playlist.tracks || []).map(t => ({
     id: 'netrack_' + t.id, title: t.name,
     artist: t.ar?.[0]?.name || '', artist_id: 'neartist_' + (t.ar?.[0]?.id || ''),
@@ -118,7 +119,23 @@ async function nePlaylistTracks(listId) {
     img_url: t.al?.picUrl || '', duration: Math.floor((t.dt || 0) / 1000),
     disable: t.fee === 4 || t.fee === 1,
   }));
-  return { tracks, info };
+  // If playlist/detail didn't return full tracks, try the track/all API for pagination
+  if (tracks.length === 0 && allTrackIds.length > 0) {
+    const trackAllUrl = 'https://music.163.com/api/playlist/track/all?id=' + pid + '&limit=' + lim + '&offset=' + off;
+    const d2 = await proxyGet(trackAllUrl, 'https://music.163.com/');
+    if (!d2._proxy_error && d2.songs) {
+      const mapped = d2.songs.map(t => ({
+        id: 'netrack_' + t.id, title: t.name,
+        artist: t.ar?.[0]?.name || '', artist_id: 'neartist_' + (t.ar?.[0]?.id || ''),
+        album: t.al?.name || '', album_id: 'nealbum_' + (t.al?.id || ''),
+        source: 'netease', source_url: 'https://music.163.com/#/song?id=' + t.id,
+        img_url: t.al?.picUrl || '', duration: Math.floor((t.dt || 0) / 1000),
+        disable: t.fee === 4 || t.fee === 1,
+      }));
+      return { tracks: mapped, total, offset: off, limit: lim };
+    }
+  }
+  return { tracks, total, offset: off, limit: lim };
 }
 
 const NE_CATEGORIES = ["华语", "流行", "摇滚", "民谣", "电子", "说唱", "R&B", "古风", "轻音乐", "ACG"];
@@ -522,7 +539,7 @@ async function apiRouter(url, env) {
         return { url: null };
 
       case 'chart':
-        if (p === 'netease') return lid ? nePlaylistTracks(lid) : neChart();
+        if (p === 'netease') return lid ? nePlaylistTracks(lid, url.searchParams.get('offset'), url.searchParams.get('limit')) : neChart();
         if (p === 'qq') return lid ? qqToplistSongs(lid) : qqChart();
         if (p === 'bilibili') return biPopular();
         if (p === 'kugou') return [];
@@ -535,7 +552,7 @@ async function apiRouter(url, env) {
         return [];
 
       case 'playlist':
-        if (p === 'netease') return nePlaylistTracks(lid);
+        if (p === 'netease') return nePlaylistTracks(lid, url.searchParams.get('offset'), url.searchParams.get('limit'));
         return { tracks: [], info: {} };
 
       case 'lyric':
